@@ -1,0 +1,75 @@
+component (Hidden=true) area_sudden < refrigeration.port_two_steady
+    % Sudden Area Change
+    % This component represents an abrupt change in flow area. A reduction
+    % in flow area will accelerate the fluid. An increase in flow area will
+    % result in a loss of momentum due to flow separation. The cross-
+    % sectional area at port B is set by the physical signal port S and its
+    % value must be between zero and the cross-sectional area at port A.
+    % The component is assumed to be adiabatic.
+    
+    % Copyright 2013-2014 The MathWorks, Inc.
+    
+    inputs
+        % Cross-sectional area at port B
+        S_B = {0.001, 'm^2'}; % S: Right
+    end
+    
+    parameters
+        S_A = {0.008, 'm^2'}; % Cross-sectional area at port A
+        L   = {0.1,   'm'  }; % Characteristic length
+    end
+    
+    parameters (Hidden=true)
+        Cd = {1, '1'}; % Flow discharge coefficient at port B
+    end
+    
+    function setup
+    % Validate parameters.
+    if L <= 0
+        pm_error('simscape:GreaterThanZero', 'Characteristic length')
+    end
+    if S_A <= 0
+        pm_error('simscape:GreaterThanZero', 'Cross-sectional area at port A')
+    end
+    
+    % Geometry.
+    Sc = S_A;
+    Lc = L;
+    end
+    
+    equations
+        let
+            % Definitions.
+            p_A = A.p;
+            p_B = B.p;
+            u_A = A.u;
+            u_B = B.u;
+            
+            % Effective cross-sectional area at port B.
+            S_eff = S_B*Cd;
+            
+            % When the flow is from A to B, pressure differential is applied to the effective area only.
+            % In this case, it is assumed that the pressure at B outside of the effective area
+            % is equal to the pressure at A.
+            % When the flow is from B to A, pressure differential is applied to the area at A.
+            % In this case, it is assumed that the pressure at B is the same inside and outside
+            % of the effective area.
+            S_press = if ge(mdot, 0), S_eff else S_A end;
+            
+            % Fluid velocity.
+            vel_A = mdot*v_A/S_A;
+            vel_B = mdot*v_B/S_eff;
+        in
+            % Momentum balance between A and B.
+            mdot*vel_A + p_A*S_press == mdot*vel_B + p_B*S_press;
+            
+            % Energy conservation between A and B.
+            u_A + p_A*v_A + vel_A^2/2 == u_B + p_B*v_B + vel_B^2/2;
+            
+            % S_B must be between 0 and S_A.
+            assert(S_B >  0,   'The cross-sectional area at port B must be greater than zero');
+            assert(S_B <= S_A, 'The cross-sectional area at port B must be less than or equal to the cross-sectional area at port A');
+        end
+    end
+    
+end

@@ -1,0 +1,44 @@
+component sensor_through
+    % Mass And Energy Flow Sensor : 1 : fixed
+    % This component represents an ideal mass flow rate and energy flow
+    % rate sensor. The mass flow rate and the energy flow rate are defined
+    % to be positive in the direction from port A to port B. They are
+    % output in the physical signal ports M and E, respectively.
+    
+    % Copyright 2013-2014 The MathWorks, Inc.
+    
+    nodes
+        A = refrigeration.refrigeration; % A:left
+        B = refrigeration.refrigeration; % B:right
+    end
+    
+    outputs
+        % Mass flow rate from port A to port B.
+        M = {0, 'kg/s'}; % M:left
+        % Energy flow rate from port A to port B.
+        E = {0, 'kW'  }; % E:right
+    end
+    
+    variables
+        % Through variables.
+        mdot = {0, 'kg/s'}; % Mass flow rate from port A to port B
+        phi  = {0, 'kW'  }; % Heat flow rate from port A to port B
+    end
+    
+    branches
+        % Through variables are positive in the direction from A to B.
+        mdot : A.mdot -> B.mdot;
+        phi  : A.phi  -> B.phi;
+    end
+    
+    equations
+        % No change in across variables.
+        A.p == B.p;
+        A.u == B.u;
+        
+        % Measured through variables.
+        M == mdot;
+        E == phi;
+    end
+    
+end

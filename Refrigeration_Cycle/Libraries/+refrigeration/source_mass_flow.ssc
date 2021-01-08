@@ -1,0 +1,93 @@
+component source_mass_flow < refrigeration.port_two_steady
+    % Controlled Mass Flow Rate Source : 1 : fixed
+    % This component represents a mass flow source that can maintain the
+    % commanded mass flow rate regardless of the pressure differential. The
+    % mass flow rate is positive in the direction from port A to port B.
+    % The commanded mass flow rate is set by the physical signal port M.
+    % The physical signal port W outputs the net power delivered to the
+    % fluid.
+    
+    % Copyright 2013-2014 The MathWorks, Inc.
+    
+    inputs
+        % Commanded mass flow rate.
+        M = {1, 'kg/s'}; % M: Left
+    end
+    
+    outputs
+        % Net power delivered to the fluid.
+        W = {0, 'kW'}; % W:right
+    end
+    
+    parameters
+        S = {0.008, 'm^2'}; % Connecting pipe cross-sectional area
+        L = {0.1,   'm'  }; % Characteristic length
+    end
+    
+    variables
+        u_2 = {396.921741345, 'kJ/kg'}; % Steps in specific internal energy between port A and port B
+        u_3 = {396.921741345, 'kJ/kg'}; % Steps in specific internal energy between port A and port B
+    end
+    
+    function setup
+    % Validate parameters.
+    if L <= 0
+        pm_error('simscape:GreaterThanZero', 'Characteristic length')
+    end
+    if S <= 0
+        pm_error('simscape:GreaterThanZero', 'Connecting pipe cross-sectional area')
+    end
+    
+    % Geometry.
+    Sc = S;
+    Lc = L;
+    end
+    
+    equations
+        let
+            % Definitions.
+            p_A = A.p;
+            p_B = B.p;
+            u_A = A.u;
+            u_B = B.u;
+            
+            % Global parameters.
+            p_TLU  = A.p_TLU;
+            u_TLU  = A.u_TLU;
+            v_TLU  = A.v_TLU;
+            
+            % Fluid properties lookup.
+            v_2 = tablelookup(p_TLU, u_TLU, v_TLU, p_2, u_2, interpolation=linear, extrapolation=nearest);
+            v_3 = tablelookup(p_TLU, u_TLU, v_TLU, p_3, u_3, interpolation=linear, extrapolation=nearest);
+            
+            % Use 3 equal steps between p_A and p_B to integrate du = -p*dv.
+            p_1 = p_A;
+            p_2 = (2*p_A + p_B)/3;
+            p_3 = (p_A + 2*p_B)/3;
+            p_4 = p_B;
+            
+            % Start and end points for integration of du = -p*dv.
+            u_1 = u_A;
+            v_1 = v_A;
+            u_4 = u_B;
+            v_4 = v_B;
+            
+            % Fluid velocity.
+            vel_A = mdot*v_A/S;
+            vel_B = mdot*v_B/S;
+        in
+            % Commanded mass flow rate.
+            mdot == M;
+            
+            % Change in internal energy for an isentropic process is du = -p*dv.
+            % Approximately integrate equation in 3 steps for better accuracy.
+            u_2 - u_1 == (p_1 + p_2)/2*(v_1 - v_2);
+            u_3 - u_2 == (p_2 + p_3)/2*(v_2 - v_3);
+            u_4 - u_3 == (p_3 + p_4)/2*(v_3 - v_4);
+            
+            % Net power delivered to the fluid.
+            W == mdot*((u_B + p_B*v_B + vel_B^2/2) - (u_A + p_A*v_A + vel_A^2/2));
+        end
+    end
+    
+end

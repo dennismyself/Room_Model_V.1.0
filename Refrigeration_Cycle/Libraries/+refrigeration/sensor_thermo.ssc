@@ -1,0 +1,68 @@
+component sensor_thermo
+    % Thermodynamic Properties Sensor : 1 : fixed
+    % This component measures the specific volume, the absolute
+    % temperature, and the vapor quality at port A. They are output in the
+    % physical signal ports V, T, and X, respectively.
+    
+    % Copyright 2013-2014 The MathWorks, Inc.
+    
+    nodes
+        A = refrigeration.refrigeration; % A:bottom
+    end
+    
+    outputs
+        % Specific volume at port A.
+        V = {0.230606289431, 'm^3/kg'}; % V:top
+        % Temperature at port A.
+        T = {293.15,        'K'      }; % T:top
+        % Vapor quality at port A.
+        X = {1,             '1'      }; % X:top
+    end
+    
+    variables
+        % Through variables.
+        mdot_A = {0, 'kg/s'}; % Mass flow rate into port A
+        phi_A  = {0, 'kW'  }; % Energy flow rate into port A
+    end
+    
+    branches
+        % Through variables are positive in the direction from A to I.
+        mdot_A : A.mdot -> *;
+        phi_A  : A.phi  -> *;
+    end
+    
+    equations
+        let
+            % Global parameters.
+            p_TLU = A.p_TLU;
+            u_TLU = A.u_TLU;
+            v_TLU = A.v_TLU;
+            T_TLU = A.T_TLU;
+            u_liq = A.u_liq;
+            u_vap = A.u_vap;
+            
+            % Definitions.
+            p_A = A.p;
+            u_A = A.u;
+            
+            % Saturation properties lookup.
+            u_liq_A = tablelookup(p_TLU, u_liq, p_A, interpolation=cubic, extrapolation=nearest);
+            u_vap_A = tablelookup(p_TLU, u_vap, p_A, interpolation=cubic, extrapolation=nearest);
+            
+            % Vapor quality.
+            x = (u_A - u_liq_A)/(u_vap_A - u_liq_A);
+        in
+            % No flow in through variables.
+            mdot_A == 0;
+            phi_A  == 0;
+            
+            % Fluid properties lookup.
+            V == tablelookup(p_TLU, u_TLU, v_TLU, p_A, u_A, interpolation=linear, extrapolation=nearest);
+            T == tablelookup(p_TLU, u_TLU, T_TLU, p_A, u_A, interpolation=linear, extrapolation=nearest);
+            
+            % Vapor quality is between 0 and 1.
+            X == if le(x, 0), 0 elseif ge(x, 1), 1 else x end;
+        end
+    end
+    
+end

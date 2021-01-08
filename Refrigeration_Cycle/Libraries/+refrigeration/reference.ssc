@@ -1,0 +1,31 @@
+component reference
+    % Absolute Reference
+    % This component represents the absolute reference for the
+    % refrigeration two-phase flow domain where the pressure and the
+    % specific internal energy are equal to zero.
+    
+    % Copyright 2013-2014 The MathWorks, Inc.
+    
+    nodes
+        A = refrigeration.refrigeration; % :top
+    end
+    
+    variables
+        % Through variables.
+        mdot_A = {0, 'kg/s'}; % Mass flow rate into port A
+        phi_A  = {0, 'kW'  }; % Energy flow rate into port A
+    end
+    
+    branches
+        % Through variables are positive in the direction from A to I.
+        mdot_A : A.mdot -> *;
+        phi_A  : A.phi  -> *;
+    end
+    
+    equations
+        % Set pressure and specific internal energy to zero.
+        A.p == 0;
+        A.u == 0;
+    end
+    
+end

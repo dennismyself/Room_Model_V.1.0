@@ -1,0 +1,59 @@
+component restriction_controlled
+    % Controlled Local Restriction
+    % This component models the pressure loss between port A and port B due
+    % to a local restriction such as a valve or an orifice. The restriction
+    % area is set by the physical signal port S. The component is assumed
+    % to be adiabatic.
+    
+    % Copyright 2013-2014 The MathWorks, Inc.
+    
+    nodes
+        A = refrigeration.refrigeration; % A:left
+        B = refrigeration.refrigeration; % B:right
+    end
+    
+    inputs
+        % Restriction area.
+        Sr = {0.001, 'm^2'}; % S: Left
+    end
+    
+    parameters
+        Cd = {0.7,   '1'  }; % Flow discharge coefficient
+        L  = {0.1,   'm'  }; % Characteristic length
+        S  = {0.008, 'm^2'}; % Connecting pipe cross-sectional area
+    end
+    
+    components (Hidden=true)
+        area_change_1 = refrigeration.area_sudden;
+        area_change_2 = refrigeration.area_sudden;
+    end
+    
+    function setup
+    % Validate parameters.
+    if Cd <= 0
+        pm_error('simscape:GreaterThanZero', 'Flow discharge coefficient')
+    end
+    if Cd > 1
+        pm_error('simscape:LessThanOrEqual', 'Flow discharge coefficient', '1');
+    end
+    
+    % Assigning member component parameters.
+    area_change_1.Cd  = Cd;
+    area_change_1.L   = L/2;
+    area_change_1.S_A = S;
+    area_change_2.Cd  = Cd;
+    area_change_2.L   = L/2;
+    area_change_2.S_A = S;
+    end
+    
+    connections
+        % Conserving connections.
+        connect(A, area_change_1.A);
+        connect(area_change_1.B, area_change_2.B);
+        connect(area_change_2.A, B);
+        
+        % Physical signal connections.
+        connect(Sr, area_change_1.S_B, area_change_2.S_B);
+    end
+    
+end

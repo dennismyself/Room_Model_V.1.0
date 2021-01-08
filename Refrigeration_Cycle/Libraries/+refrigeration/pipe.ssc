@@ -1,0 +1,265 @@
+component pipe < refrigeration.port_two_dynamic
+    % Pipe
+    % This component models fluid flow in a pipe between port A and port B
+    % with friction. There is convective heat transfer between the fluid
+    % and the pipe wall. The pipe wall is represented by the thermal port
+    % T. Fluid inertia is assumed to have a negligible effect on the flow
+    % dynamics.
+    %
+    % By default, the specified initial pressure and initial temperature
+    % determine the initial conditions of the fluid in the pipe. To
+    % specify the initial pressure and the initial vapor quality instead,
+    % set the initial temperature to a negative value. Likewise, to specify
+    % the initial temperature and the initial vapor quality instead, set
+    % the initial pressure to a negative value.
+    
+    % Copyright 2013-2014 The MathWorks, Inc.
+    
+    nodes
+        T = foundation.thermal.thermal; % T:left
+    end
+    
+    parameters
+        L        = {1,     'm'       }; % Pipe length
+        S        = {0.008, 'm^2'     }; % Pipe cross-sectional area
+        Dh       = {0.1,   'm'       }; % Pipe hydraulic diameter
+        fs       = {64,    '1'       }; % Shape factor for laminar viscous friction
+        La       = {0.1,   'm'       }; % Aggregate equivalent length of local resistances
+        eps      = {15e-6, 'm'       }; % Internal surface absolute roughness
+        Re_lam   = {2000,  '1'       }; % Reynolds number upper limit for the laminar regime
+        Re_tur   = {4000,  '1'       }; % Reynolds number lower limit for the turbulent regime
+        J_smooth = {12,    'kg/s/m^2'}; % Mass flux smoothing parameter for the Nusselt number during flow reversal
+        
+        % Initial conditions.
+        p_0 = {0.101325, 'MPa'}; % Initial pressure
+        T_0 = {293.15,   'K'  }; % Initial temperature
+        x_0 = {1,        '1'  }; % Initial vapor quality
+    end
+    
+    parameters (Access=protected)
+        V           = {0.08,                   'm^3' }; % Pipe volume
+        eps_Dh      = {0.00015,                '1'   }; % Relative roughness
+        Le          = {1.1,                    'm'   }; % Effective length for viscous friction calculations
+        Nu_coeff_l  = {[1.86,  1/3, 1/3, 1/3], '1'   }; % Laminar regime Nusselt number correlation coefficients
+        Nu_coeff_t  = {[0.027, 0.8, 1/3, 0, ], '1'   }; % Turbulent regime Nusselt number correlation coefficients
+        mdot_smooth = {0.096,                  'kg/s'}; % Mass flow rate smoothing parameter for the Nusselt number during flow reversal
+    end
+    
+    variables
+        % Through variables.
+        q_T = {0, 'kW'}; % Heat flow rate into port T
+        
+        % Variables at boundary node A.
+        Ff_A = {0, 'N'}; % Viscous friction force at port A
+        
+        % Variables at boundary node B.
+        Ff_B = {0, 'N'}; % Viscous friction force at port B
+        
+        % Variables at internal node I.
+        ev_I   = {1721.2095226213, 'kJ/m^3'}; % Total energy per unit volume at internal node
+        mdot_I = {0,               'kg/s'  }; % Mass flow rate at internal node
+        Nu_I   = {0,               '1'     }; % Nusselt number at internal node
+    end
+    
+    function setup
+    % Validate parameters.
+    if L <= 0
+        pm_error('simscape:GreaterThanZero', 'Pipe length')
+    end
+    if S <= 0
+        pm_error('simscape:GreaterThanZero', 'Pipe cross-sectional area')
+    end
+    if Dh <= 0
+        pm_error('simscape:GreaterThanZero', 'Pipe hydraulic diameter')
+    end
+    if fs <= 0
+        pm_error('simscape:GreaterThanZero', 'Shape factor for laminar viscous friction')
+    end
+    if La < 0
+        pm_error('simscape:GreaterThanOrEqualToZero', 'Aggregate equivalent length of local resistances')
+    end
+    if eps < 0
+        pm_error('simscape:GreaterThanOrEqualToZero', 'Internal surface absolute roughness')
+    end
+    if Re_lam < 0
+        pm_error('simscape:GreaterThanOrEqualToZero', 'Reynolds number upper limit for the laminar regime')
+    end
+    if Re_tur <= Re_lam
+        pm_error('simscape:GreaterThan', 'Reynolds number lower limit for the turbulent regime', 'Reynolds number lower limit for the turbulent regime')
+    end
+    if J_smooth <= 0
+        pm_error('simscape:GreaterThanZero', 'Mass flux smoothing parameter for the Nusselt number during flow reversal')
+    end
+    
+    % Geometry.
+    Sc = S;
+    Lc = L;
+    V  = S*L;
+    
+    % Numerical parameter.
+    mdot_smooth = J_smooth*S;
+    
+    % Relative roughness.
+    eps_Dh = eps/Dh;
+    
+    % Effective length.
+    Le = L + La;
+    
+    % Global parameters.
+    p_TLU = A.p_TLU;
+    u_TLU = A.u_TLU;
+    v_TLU = A.v_TLU;
+    T_TLU = A.T_TLU;
+    u_liq = A.u_liq;
+    u_vap = A.u_vap;
+    
+    % Convert to doubles.
+    p_0_val       = value(p_0,   'MPa'   );
+    T_0_val       = value(T_0,   'K'     );
+    x_0_val       = value(x_0,   '1'     );
+    TLU_val.p     = value(p_TLU, 'MPa'   );
+    TLU_val.u     = value(u_TLU, 'kJ/kg' );
+    TLU_val.v     = value(v_TLU, 'm^3/kg');
+    TLU_val.T     = value(T_TLU, 'K'     );
+    sat_val.u_liq = value(u_liq, 'kJ/kg' );
+    sat_val.u_vap = value(u_vap, 'kJ/kg' );
+    
+    % Determine the initial specific internal energy and specific volume.
+    [u_0_val, v_0_val] = twoPhaseInitialConditions(p_0_val, T_0_val, x_0_val, TLU_val, sat_val);
+    
+    % Convert to data manager objects.
+    u_0 = {u_0_val, 'kJ/kg' };
+    v_0 = {v_0_val, 'm^3/kg'};
+    
+    % Calculate initial fluid properties.
+    e_0  = u_0;
+    ev_0 = e_0/v_0;
+    mdot_0 = {0, 'kg/s'};
+    
+    % Assign initial values to differential variables.
+    v_I  = v_0;
+    ev_I = ev_0;
+    end
+    
+    branches
+        % Thermal through variable is positive in the direction from T to I.
+        q_T : T.Q -> *;
+    end
+    
+    equations
+        let
+            % Global parameters.
+            p_TLU  = A.p_TLU;
+            u_TLU  = A.u_TLU;
+            T_TLU  = A.T_TLU;
+            mu_TLU = A.mu_TLU;
+            k_TLU  = A.k_TLU;
+            Pr_TLU = A.Pr_TLU;
+            
+            % Definitions.
+            p_A = A.p;
+            p_B = B.p;
+            u_A = A.u;
+            u_B = B.u;
+            T_T = T.T;
+            
+            % Fluid properties lookup.
+            T_I  = tablelookup(p_TLU, u_TLU, T_TLU,  p_I, u_I, interpolation=linear, extrapolation=nearest);
+            mu_A = tablelookup(p_TLU, u_TLU, mu_TLU, p_A, u_A, interpolation=linear, extrapolation=nearest);
+            mu_B = tablelookup(p_TLU, u_TLU, mu_TLU, p_B, u_B, interpolation=linear, extrapolation=nearest);
+            k_I  = tablelookup(p_TLU, u_TLU, k_TLU,  p_I, u_I, interpolation=linear, extrapolation=nearest);
+            Pr_I = tablelookup(p_TLU, u_TLU, Pr_TLU, p_I, u_A, interpolation=linear, extrapolation=nearest);
+            
+            % Reynolds number.
+            % Set to be positive and greater than one to avoid numerical issues.
+            Re_A = sqrt((mdot_A/mu_A*Dh/S)^2 + 1);
+            Re_B = sqrt((mdot_B/mu_B*Dh/S)^2 + 1);
+            Re_I = (Re_A + Re_B)/2;
+            
+            % Transition function between laminar regime and turbulent regime.
+            % Use simplest polynomial function to ensture 0th and 1st order continuity.
+            Re_norm_A = (Re_A - Re_lam)/(Re_tur - Re_lam);
+            Re_norm_B = (Re_B - Re_lam)/(Re_tur - Re_lam);
+            Re_norm_I = (Re_I - Re_lam)/(Re_tur - Re_lam);
+            trans_A = 3*Re_norm_A^2 - 2*Re_norm_A^3;
+            trans_B = 3*Re_norm_B^2 - 2*Re_norm_B^3
+            trans_I = 3*Re_norm_I^2 - 2*Re_norm_I^3;
+            
+            % Turbulent pipe flow friction factor using Halland correlation.
+            fd_A = 1/(-1.8*log10(6.9/Re_A + (eps_Dh/3.7)^1.11))^2;
+            fd_B = 1/(-1.8*log10(6.9/Re_B + (eps_Dh/3.7)^1.11))^2;
+            
+            % Absolute value of mass flow rate.
+            mdot_abs_A = if ge(mdot_A, 0), mdot_A else -mdot_A end;
+            mdot_abs_B = if ge(mdot_B, 0), mdot_B else -mdot_B end;
+            
+            % Laminar and turbulent regime viscous friction force.
+            Ff_lam_A = fs*mu_A*v_A*Le/Dh^2*mdot_A/4;
+            Ff_lam_B = fs*mu_B*v_B*Le/Dh^2*mdot_B/4;
+            Ff_tur_A = fd_A*Le/Dh*mdot_abs_A*vel_A/4;
+            Ff_tur_B = fd_B*Le/Dh*mdot_abs_B*vel_B/4;
+            
+            % Smoothing function between -1 and +1 for mass flow rate less than "mdot_smooth".
+            smooth_I = tanh(3*mdot_I/mdot_smooth);
+            
+            % Laminar and turbulent regime Nusselt number correlations
+            % with smoothing during flow reversal.
+            Nu_lam_I = smooth_I * Nu_coeff_l(1) * Re_I^Nu_coeff_l(2) * Pr_I^Nu_coeff_l(3) * (Dh/L)^Nu_coeff_l(4);
+            Nu_tur_I = smooth_I * Nu_coeff_t(1) * Re_I^Nu_coeff_t(2) * Pr_I^Nu_coeff_t(3) * (Dh/L)^Nu_coeff_t(4);
+            
+            % Heat transfer coefficient.
+            % Nusselt number is at least 3.66 for fully developed laminar flow in tubes
+            % with constant wall temperature.
+            hc_I = sqrt(Nu_I^2 + 3.66^2)/Dh*k_I;
+            
+            % Surface area.
+            S_surf = 4*S/Dh*L;
+            
+            % Fluid velocity.
+            vel_A = mdot_A*v_A/S;
+            vel_B = mdot_B*v_B/S;
+            vel_I = mdot_I*v_I/S;
+            
+            % Stream thrust.
+            F_A = mdot_A*vel_A + p_A*S;
+            F_B = mdot_B*vel_B + p_B*S;
+            F_I = mdot_I*vel_I + p_I*S;
+            
+            % Kinetic energy flow rate.
+            ke_A = mdot_A*vel_A^2/2;
+            ke_B = mdot_B*vel_B^2/2;
+            
+            % Pressure work flow rate.
+            pw_A = mdot_A*p_A*v_A;
+            pw_B = mdot_B*p_B*v_B;
+        in
+            % Assume average mass flow rate at I.
+            mdot_I == (mdot_A + mdot_B)/2;
+            
+            % Total energy at I.
+            ev_I*v_I == u_I + vel_I^2/2;
+            
+            % Viscous friction force including laminar and turbulent regimes.
+            Ff_A == if le(Re_norm_A, 0), Ff_lam_A elseif lt(Re_norm_A, 1), (1 - trans_A)*Ff_lam_A + trans_A*Ff_tur_A else Ff_tur_A end;
+            Ff_B == if le(Re_norm_B, 0), Ff_lam_B elseif lt(Re_norm_B, 1), (1 - trans_B)*Ff_lam_B + trans_B*Ff_tur_B else Ff_tur_B end;
+            
+            % Nusselt number including laminar and turbulent regimes.
+            Nu_I == if le(Re_norm_I, 0), Nu_lam_I elseif lt(Re_norm_I, 1), (1 - trans_I)*Nu_lam_I + trans_I*Nu_tur_I else Nu_tur_I end;
+            
+            % Heat transfer between T and I.
+            q_T == hc_I*S_surf*(T_T - T_I);
+            
+            % Mass conservation between A and B.
+            -der(v_I)/v_I^2*V == mdot_A - mdot_B;
+            
+            % Momentum conservation between A and I and between I and B.
+            % Inertial effect assumed to be negligible.
+            F_A - F_I == Ff_A;
+            F_I - F_B == Ff_B;
+            
+            % Energy conservation betwen A and B.
+            der(ev_I)*V == (phi_A + pw_A + ke_A) - (phi_B + pw_B + ke_B) + q_T;
+        end
+    end
+    
+end

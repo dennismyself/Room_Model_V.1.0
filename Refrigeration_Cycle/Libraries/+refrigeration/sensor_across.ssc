@@ -1,0 +1,44 @@
+component sensor_across
+    % Pressure And Energy Sensor : 1 : fixed
+    % This component represents an ideal pressure and specific internal
+    % energy sensor. The pressure and the specific internal energy are
+    % measured at port A relative to port B. They are output in the
+    % physical signal ports P and U, respectively.
+    
+    % Copyright 2013-2014 The MathWorks, Inc.
+    
+    nodes
+        A = refrigeration.refrigeration; % A:left
+        B = refrigeration.refrigeration; % B:right
+    end
+    
+    outputs
+        % Pressure at port A relative to port B.
+        P = {0.101315,      'MPa'  }; % P:left
+        % Specific internal energy at port A relative to port B.
+        U = {396.921741345, 'kJ/kg'}; % U:right
+    end
+    
+    variables
+        % Through variables.
+        mdot = {0, 'kg/s'}; % Mass flow rate from port A to port B
+        phi  = {0, 'kW'  }; % Energy flow rate from port A to port B
+    end
+    
+    branches
+        % Through variables are positive in the direction from A to B.
+        mdot : A.mdot -> B.mdot;
+        phi  : A.phi  -> B.phi;
+    end
+    
+    equations
+        % Measured across variables.
+        P == A.p - B.p;
+        U == A.u - B.u;
+        
+        % No flow in through variables.
+        mdot == 0;
+        phi  == 0;
+    end
+    
+end

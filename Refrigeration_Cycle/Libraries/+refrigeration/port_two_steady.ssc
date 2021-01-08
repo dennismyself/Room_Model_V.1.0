@@ -1,0 +1,109 @@
+component (Hidden=true) port_two_steady
+    % Quasi-Steady Two Port
+    % This component defines a component with two ports. The energy flow
+    % rates based on the upwinding scheme are computed. It is assumed that
+    % the component is quasi-steady. There is no fluid volume represented
+    % by an internal node.
+    
+    % Copyright 2013-2014 The MathWorks, Inc.
+    
+    nodes
+        A = refrigeration.refrigeration; % A:left
+        B = refrigeration.refrigeration; % B:right
+    end
+    
+    parameters (Access=protected)
+        Sc = {0.008, 'm^2'}; % Component cross-sectional area
+        Lc = {0.1,   'm'  }; % Component length
+    end
+    
+    variables
+        % Through variables.
+        mdot  = {0, 'kg/s'}; % Mass flow rate from port A to port B
+        phi_A = {0, 'kW'  }; % Energy flow rate into port A
+        phi_B = {0, 'kW'  }; % Energy flow rate out of port B
+        
+        % Variables at boundary node A.
+        u_AI = {396.921741345,  'kJ/kg' }; % Specific internal energy at port A for upwinding
+        v_A  = {0.230606289431, 'm^3/kg'}; % Specific volume at port A
+        
+        % Variables at boundary node B.
+        u_BI = {396.921741345,  'kJ/kg' }; % Specific internal energy at port B for upwinding
+        v_B  = {0.230606289431, 'm^3/kg'}; % Specific volume at port B
+    end
+    
+    branches
+        % Through variables are positive in the direction from A to B.
+        mdot  : A.mdot -> B.mdot;
+        phi_A : A.phi  -> *;
+        phi_B : *      -> B.phi;
+    end
+    
+    equations
+        let
+            % Global parameters.
+            p_TLU  = A.p_TLU;
+            u_TLU  = A.u_TLU;
+            v_TLU  = A.v_TLU;
+            mu_TLU = A.mu_TLU;
+            Pr_TLU = A.Pr_TLU;
+            p_min  = A.p_min;
+            p_max  = A.p_max;
+            u_min  = A.u_min;
+            u_max  = A.u_max;
+            AR_max = A.AR_max;
+            
+            % Definitions.
+            p_A = A.p;
+            p_B = B.p;
+            u_A = A.u;
+            u_B = B.u;
+            
+            % Fluid properties lookup.
+            mu_A = tablelookup(p_TLU, u_TLU, mu_TLU, p_A, u_A, interpolation=linear, extrapolation=nearest);
+            mu_B = tablelookup(p_TLU, u_TLU, mu_TLU, p_B, u_B, interpolation=linear, extrapolation=nearest);
+            Pr_A = tablelookup(p_TLU, u_TLU, Pr_TLU, p_A, u_A, interpolation=linear, extrapolation=nearest);
+            Pr_B = tablelookup(p_TLU, u_TLU, Pr_TLU, p_B, u_B, interpolation=linear, extrapolation=nearest);
+            
+            % Component cross-sectional area per unit length.
+            % Component aspect ratio must be not be greater than the maximum.
+            % Aspect ratio is defined as length over diameter.
+            SL_min = sqrt(Sc*pi/4)/AR_max;
+            SL = if gt(Sc/Lc, SL_min), Sc/Lc else SL_min end;
+            
+            % Conduction heat flow rate computed based on specific internal energy.
+            % For simplicity, used cp instead of cv to convert
+            % temperature difference to internal energy difference.
+            G_A = SL*2*mu_A/Pr_A;
+            G_B = SL*2*mu_B/Pr_B;
+            qc_A = G_A*(u_A - u_AI);
+            qc_B = G_B*(u_BI - u_B);
+            
+            % The upwind internal energy is advected.
+            u_Au = if gt(mdot, 0), u_A else u_AI end;
+            u_Bu = if lt(mdot, 0), u_B else u_BI end;
+        in
+            % Energy flow rate.
+            phi_A == mdot*u_Au + qc_A;
+            phi_B == mdot*u_Bu + qc_B;
+            
+            % Component does not store or convert any heat due to conduction.
+            qc_A == qc_B;
+            
+            % Fluid properties lookup.
+            v_A == tablelookup(p_TLU, u_TLU, v_TLU, p_A, u_A, interpolation=linear, extrapolation=nearest);
+            v_B == tablelookup(p_TLU, u_TLU, v_TLU, p_B, u_B, interpolation=linear, extrapolation=nearest);
+            
+            % Pressure and specific internal energy must be within range of the fluid property tables.
+            assert(p_A <= p_max, 'The pressure at port A is greater than the maximum allowable pressure');
+            assert(p_A >= p_min, 'The pressure at port A is less than the minimum allowable pressure');
+            assert(u_A <= u_max, 'The specific internal energy at port A is greater than the maximum allowable specific internal energy');
+            assert(u_A >= u_min, 'The specific internal energy at port A is less than the minimum allowable specific internal energy');
+            assert(p_B <= p_max, 'The pressure at port B is greater than the maximum allowable pressure');
+            assert(p_B >= p_min, 'The pressure at port B is less than the minimum allowable pressure');
+            assert(u_B <= u_max, 'The specific internal energy at port B is greater than the maximum allowable specific internal energy');
+            assert(u_B >= u_min, 'The specific internal energy at port B is less than the minimum allowable specific internal energy');
+        end
+    end
+    
+end
